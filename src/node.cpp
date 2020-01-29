@@ -32,8 +32,10 @@
  *
  */
 
+#include "dynamic_reconfigure/server.h"
 #include "ros/ros.h"
 #include "rplidar.h"
+#include "rplidar_ros/LidarConfig.h"
 #include "sensor_msgs/LaserScan.h"
 #include "std_srvs/Empty.h"
 
@@ -46,6 +48,16 @@
 using namespace rp::standalone::rplidar;
 
 RPlidarDriver *drv = NULL;
+
+int32_t g_start_offset_msec = 0;
+int32_t g_end_offset_msec = 0;
+double g_yaw_vel = 0.0;
+
+void dynamic_reconfigure_callback(rplidar_ros::LidarConfig &config, uint32_t level)
+{
+  g_start_offset_msec = config.start_time_offset_msec;
+  g_end_offset_msec = config.end_time_offset_msec;
+}
 
 void publish_scan(ros::Publisher *pub, rplidar_response_measurement_node_hq_t *nodes, size_t node_count,
                   ros::Time start, double scan_time, bool inverted, float angle_min, float angle_max,
@@ -219,6 +231,12 @@ int main(int argc, char *argv[])
   nh_private.param<bool>("angle_compensate", angle_compensate, false);
   nh_private.param<std::string>("scan_mode", scan_mode, std::string());
 
+  dynamic_reconfigure::Server<rplidar_ros::LidarConfig> server;
+  dynamic_reconfigure::Server<rplidar_ros::LidarConfig>::CallbackType f =
+      boost::bind(&dynamic_reconfigure_callback, _1, _2);
+
+  server.setCallback(f);
+
   ROS_INFO("RPLIDAR running on ROS package rplidar_ros. SDK Version:" RPLIDAR_SDK_VERSION "");
 
   u_result op_result;
@@ -344,9 +362,9 @@ int main(int argc, char *argv[])
     rplidar_response_measurement_node_hq_t nodes[360 * 8];
     size_t count = _countof(nodes);
 
-    start_scan_time = ros::Time::now();
+    start_scan_time = ros::Time::now() + ros::Duration(g_start_offset_msec * 0.001);
     op_result = drv->grabScanDataHq(nodes, count);
-    end_scan_time = ros::Time::now();
+    end_scan_time = ros::Time::now() + ros::Duration(g_end_offset_msec * 0.001);
     scan_duration = (end_scan_time - start_scan_time).toSec();
 
     if (op_result == RESULT_OK)

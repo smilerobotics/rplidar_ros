@@ -10,9 +10,14 @@ FILE(GLOB RPLIDAR_SDK_SRC
 )
 
 find_package(catkin REQUIRED COMPONENTS
+  dynamic_reconfigure
   roscpp
   rosconsole
   sensor_msgs
+)
+
+generate_dynamic_reconfigure_options(
+  cfg/Lidar.cfg
 )
 
 include_directories(
@@ -25,6 +30,7 @@ catkin_package()
 
 add_executable(rplidarNode src/node.cpp ${RPLIDAR_SDK_SRC})
 target_link_libraries(rplidarNode ${catkin_LIBRARIES})
+add_dependencies(rplidarNode ${PROJECT_NAME}_gencfg)
 
 add_executable(rplidarNodeClient src/client.cpp)
 target_link_libraries(rplidarNodeClient ${catkin_LIBRARIES})
