@@ -33,6 +33,8 @@
  */
 
 #include "dynamic_reconfigure/server.h"
+#include "geometry_msgs/Twist.h"
+#include "nav_msgs/Odometry.h"
 #include "ros/ros.h"
 #include "rplidar.h"
 #include "rplidar_ros/LidarConfig.h"
@@ -52,11 +54,13 @@ RPlidarDriver *drv = NULL;
 int32_t g_start_offset_msec = 0;
 int32_t g_end_offset_msec = 0;
 double g_yaw_vel = 0.0;
+double g_velocity_compensate_gain = 0.1;
 
 void dynamic_reconfigure_callback(rplidar_ros::LidarConfig &config, uint32_t level)
 {
   g_start_offset_msec = config.start_time_offset_msec;
   g_end_offset_msec = config.end_time_offset_msec;
+  g_velocity_compensate_gain = config.velocity_compensate_gain;
 }
 
 void publish_scan(ros::Publisher *pub, rplidar_response_measurement_node_hq_t *nodes, size_t node_count,
@@ -73,13 +77,13 @@ void publish_scan(ros::Publisher *pub, rplidar_response_measurement_node_hq_t *n
   bool reversed = (angle_max > angle_min);
   if (reversed)
   {
-    scan_msg.angle_min = M_PI - angle_max;
+    scan_msg.angle_min = M_PI - angle_max + (g_yaw_vel * g_velocity_compensate_gain);
     scan_msg.angle_max = M_PI - angle_min;
   }
   else
   {
     scan_msg.angle_min = M_PI - angle_min;
-    scan_msg.angle_max = M_PI - angle_max;
+    scan_msg.angle_max = M_PI - angle_max - (g_yaw_vel * g_velocity_compensate_gain);
   }
   scan_msg.angle_increment = (scan_msg.angle_max - scan_msg.angle_min) / (double)(node_count - 1);
 
@@ -197,6 +201,16 @@ bool start_motor(std_srvs::Empty::Request &req, std_srvs::Empty::Response &res)
   return true;
 }
 
+void vel_callback(const geometry_msgs::Twist::ConstPtr &twist)
+{
+  g_yaw_vel = twist->angular.z;
+}
+
+void odom_callback(const nav_msgs::Odometry::ConstPtr &odom)
+{
+  g_yaw_vel = odom->twist.twist.angular.z;
+}
+
 static float getAngle(const rplidar_response_measurement_node_hq_t &node)
 {
   return node.angle_z_q14 * 90.f / 16384.f;
@@ -219,6 +233,8 @@ int main(int argc, char *argv[])
   std::string scan_mode;
   ros::NodeHandle nh;
   ros::Publisher scan_pub = nh.advertise<sensor_msgs::LaserScan>("scan", 1000);
+  ros::Subscriber vel_sub = nh.subscribe<nav_msgs::Odometry>("odom", 1, odom_callback);
+
   ros::NodeHandle nh_private("~");
   nh_private.param<std::string>("channel_type", channel_type, "serial");
   nh_private.param<std::string>("tcp_ip", tcp_ip, "192.168.0.7");
